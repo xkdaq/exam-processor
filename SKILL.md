@@ -1,7 +1,6 @@
 ---
 name: exam-processor
 description: 考研真题处理器 - 自动识别真题内容，生成答案，并按模板格式输出Excel。当用户上传真题文件（Word/PDF/图片）并要求整理成Excel时使用此技能。
-disable: false
 ---
 
 # 考研真题处理器

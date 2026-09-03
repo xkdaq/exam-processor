@@ -66,6 +66,58 @@ pip install PyMuPDF Pillow pytesseract
 brew install tesseract tesseract-lang
 ```
 
+#### 还原 PDF 折行（文字版 PDF 必做）
+
+`extract_text()` 会按 PDF 里的物理行换行，导致题干和解析出现句中硬换行
+（如"能提\n高行为频率"），必须还原成自然段落后再入库。用 `pdfplumber` 的
+行几何信息判断段落边界：
+
+```python
+import pdfplumber
+
+def extract_items(pdf_path):
+    raw = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for p in pdf.pages:
+            for l in p.extract_text_lines():
+                t = l['text'].strip()
+                if not t or t.isdigit():       # 丢弃空行与纯页码行
+                    continue
+                raw.append((t, round(l['x0'], 1), round(l['x1'], 1)))
+    # 正文右边缘 = 出现次数最多的 x1（两端对齐的满行都收在此处）
+    right = max(set(x for _, _, x in raw),
+                key=lambda x: sum(1 for _, _, y in raw if y == x))
+    thresh = right - 5.3          # 满行与段末行之间有明显空档，取中值
+    base_x0 = min(x0 for _, x0, _ in raw)   # 正文左边界
+    items, para, prev_short = [], -1, True
+    for t, x0, x1 in raw:
+        if prev_short or x0 > base_x0 + 8:    # 上一行是段末行 / 本行段首缩进
+            para += 1
+        items.append({'text': t, 'para': para})
+        prev_short = x1 < thresh
+    return items
+
+def to_text(items):               # 同段直接拼接，段间换行
+    paras, cur = [], None
+    for it in items:
+        if cur is None or it['para'] != cur:
+            paras.append(it['text']); cur = it['para']
+        else:
+            paras[-1] += it['text']
+    return '\n'.join(paras)
+```
+
+判定要点：
+- **段首缩进**最可靠：正文续行贴左边界（`x0 = base`），新段落缩进两格
+  （`x0 ≈ base + 24`）。仅靠它会漏掉无缩进的段落。
+- **段末短行**：段落最后一行明显短于右边缘。阈值须落在"最大段末行"与
+  "最小满行"之间的空档里，两者通常只差几 pt，务必先打印 `[右边缘-20, 右边缘)`
+  区间的行人工确认阈值。
+- 两者取并集即可覆盖。答案区常整段不缩进，此时只靠短行规则生效。
+- 固定标记行（`【参考答案】`、`1.【答案】C。`、题型标题）另加一条强制断段规则。
+- **选项必须按物理行解析**，不能先合并段落：合并后 `A.xxx` 与 `B.xxx` 之间
+  没有空格，将无法切分。
+
 ### 2. 解析题目结构
 
 识别并提取：
